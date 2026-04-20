@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Keerthi Store - Orders</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<!-- NAVBAR -->
+<header class="navbar">
+    <div class="logo">🛒 Keerthi Store</div>
+
+    <input class="search" placeholder="Search products..." onkeyup="searchProduct()">
+
+    <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="orders.html">Orders</a>
+        <a href="cart.html">Cart</a>
+        <a href="website.test.html">Tests</a>
+        <a class="login-link" href="login.html">Login</a>
+    </div>
+</header>
+
+<div class="container" id="ordersSection">
+    <h2>Placed Orders</h2>
+    <div id="orders" class="products"></div>
+    <div id="ordersEmpty" style="text-align:center; padding:40px; display:none;">
+        <p>No orders placed yet</p>
+    </div>
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>

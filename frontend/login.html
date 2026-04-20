@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keerthi Store - Login</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="auth-page">
+
+<header class="navbar">
+    <div class="logo">🛒 Keerthi Store</div>
+
+    <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="orders.html">Orders</a>
+        <a href="cart.html">Cart</a>
+        <a href="website.test.html">Tests</a>
+    </div>
+</header>
+
+<main class="auth-wrap">
+    <section class="auth-card">
+        <div class="auth-badge">Secure Sign In</div>
+        <h1>Welcome back</h1>
+        <p>Sign in to continue shopping, track your orders, and manage your cart.</p>
+
+        <div id="loginMessage" class="auth-message"></div>
+
+        <form class="auth-form" onsubmit="return handleLogin(event)">
+            <label>
+                Email Address
+                <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email" required>
+            </label>
+
+            <label>
+                Password
+                <input id="loginPassword" type="password" placeholder="Enter your password" autocomplete="current-password" required>
+            </label>
+
+            <div class="auth-row">
+                <label class="auth-check">
+                    <input type="checkbox">
+                    Remember me
+                </label>
+                <a href="index.html">Browse as guest</a>
+            </div>
+
+            <button type="submit">Login</button>
+        </form>
+
+        <div class="auth-hint">
+            Sample page only. Any email and password will continue to the store.
+        </div>
+    </section>
+</main>
+
+<script src="script.js"></script>
+
+</body>
+</html>
