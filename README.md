@@ -1,7 +1,7 @@
 # Keerthi E-Commerce (Serverless AWS Project)
 
 ## Project Overview
-Keerthi E-Commerce is a serverless web application built on AWS for managing products and cart operations, with recommendation support based on search behavior. The project uses fully managed cloud services to reduce operational overhead while improving scalability, observability, and deployment flexibility.
+Keerthi E-Commerce is a serverless web application built on AWS for managing products, cart, orders, and user auth. The frontend now includes order-history popularity recommendations, using past orders to surface the most frequently purchased products.
 
 ## Table of Contents
 - [Architecture](#architecture)
@@ -25,6 +25,26 @@ Keerthi E-Commerce is a serverless web application built on AWS for managing pro
 - **Infrastructure as Code:** Provisioned using **Terraform**
 - **Monitoring & Tracing:** Enabled with **Amazon CloudWatch** and **AWS X-Ray**
 
+### Layered Service Architecture
+
+```text
++-------------------------------------------------------------+
+|                       API Gateway                           |
+|              (Routes requests to backend services)          |
++-------------------------------------------------------------+
+                 |                    |                    |
+                 v                    v                    v
++-------------------------+ +-------------------------+ +-------------------------+
+| Product Service         | | Cart Service            | | Order Service          |
+| (AWS Lambda)            | | (AWS Lambda)            | | (AWS Lambda)            |
++-------------------------+ +-------------------------+ +-------------------------+
+                 |                    |                    |
+                 v                    v                    v
++-------------------------+ +-------------------------+ +-------------------------+
+| DynamoDB Product Table  | | DynamoDB Cart Table     | | DynamoDB Order Table   |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
 ### Request Flow
 1. User accesses the web app through CloudFront.
 2. CloudFront serves static frontend assets from S3.
@@ -36,7 +56,8 @@ Keerthi E-Commerce is a serverless web application built on AWS for managing pro
 ## Key Features
 - Add, view, and delete products
 - Add to cart, view cart, and delete cart items
-- Search-based product recommendation
+- Order-history popularity recommendations on the homepage
+- User registration and login backed by DynamoDB
 - Fully serverless architecture (no server management)
 - Logging and monitoring enabled for backend services
 
@@ -61,20 +82,39 @@ Keerthi E-Commerce is a serverless web application built on AWS for managing pro
 ## Project Structure
 ```text
 keerthi_frontend/
-├── index.html                  # Frontend entry point
-├── style.css                   # Frontend styling
-├── script.js                   # Frontend logic
-├── main.tf                     # Terraform infrastructure definition
-├── variables.tf                # Terraform variables
-├── product_lambda.py           # Product API Lambda function
-├── order_lambda.py             # Cart/Order-related Lambda function
-├── payload.json                # Example request payload for testing
-├── out.json                    # Example output/result artifact
-├── terraform/                  # Terraform modules
-│   └── cognito/                # Authentication module (partially implemented)
-├── cart.html                   # Cart UI page
-├── orders.html                 # Orders UI page
-└── login.html                  # Login UI page
+├── README.md
+├── out.json
+├── payload.json
+├── terraform.tfstate
+├── terraform.tfstate.backup
+├── backend/
+│   ├── auth/
+│   │   └── lambda_function.py
+│   ├── cart/
+│   │   └── cart_fun.py
+│   ├── order/
+│   │   └── lambda_function.py
+│   └── product/
+│       └── lambda_function.py
+├── frontend/
+│   ├── index.html
+│   ├── cart.html
+│   ├── login.html
+│   ├── orders.html
+│   ├── website.test.html
+│   ├── assets/
+│   │   └── images/
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       └── script.js
+└── terraform/
+    ├── main.tf
+    ├── plan_output.txt
+    ├── terraform.tfstate
+    ├── terraform.tfstate.backup
+    ├── tfplan
+    └── variables.tf
 ```
 
 ## Configuration
@@ -108,9 +148,12 @@ variable "project_name" {
 ## API Endpoints
 | Endpoint | Methods | Description |
 |----------|---------|-------------|
-| `/products` | `GET`, `POST` | Fetch products and add new products |
+| `/products` | `GET`, `POST` | Fetch and add products |
 | `/cart` | `GET`, `POST`, `DELETE` | Manage cart items |
-| `/recommend` | `GET` | Return product recommendations |
+| `/orders` | `GET`, `POST` | Fetch order history and place orders |
+| `/auth/login` | `POST` | Validate credentials against DynamoDB |
+| `/auth/logout` | `POST` | End the user session |
+| `/auth/me` | `GET` | Get current authenticated user details |
 
 ### Sample API Calls
 
@@ -150,10 +193,10 @@ curl -X POST "$API_BASE_URL/cart" \
 	}'
 ```
 
-Get recommendations:
+Get recent orders:
 
 ```bash
-curl "$API_BASE_URL/recommend?query=mouse"
+curl "$API_BASE_URL/orders"
 ```
 
 ## Monitoring and Observability
@@ -192,7 +235,7 @@ aws s3 sync . s3://<your-frontend-bucket-name> --exclude "*.tfstate*" --exclude 
 ### 4. Validate deployment
 - Open the homepage and test product creation.
 - Verify cart operations (add, view, delete).
-- Test recommendation endpoint with search terms.
+- Confirm homepage recommendations update based on past orders and cart contents.
 - Inspect CloudWatch logs for successful Lambda invocations.
 
 ## Security Considerations
@@ -210,7 +253,7 @@ aws s3 sync . s3://<your-frontend-bucket-name> --exclude "*.tfstate*" --exclude 
 - Terraform apply failures: validate IAM permissions and provider region configuration.
 
 ## Future Improvements
-- Add full authentication and authorization using AWS Cognito
+- Add route protection and authorization claims for logged-in users
 - Improve UI/UX for desktop and mobile experience
 - Introduce user-based cart isolation
 - Add CI/CD pipeline for automated deployment

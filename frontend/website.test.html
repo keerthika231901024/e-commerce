@@ -194,6 +194,35 @@
             padding: 0 24px 24px;
         }
 
+        .actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .run-btn {
+            border: 1px solid #bfdbfe;
+            background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .run-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .run-meta {
+            font-size: 13px;
+            color: #475569;
+        }
+
         .summary {
             padding: 14px 16px;
             border-radius: 16px;
@@ -310,7 +339,6 @@
                 <a href="index.html">Home</a>
                 <a href="orders.html">Orders</a>
                 <a href="cart.html">Cart</a>
-                <a href="login.html">Login</a>
                 </div>
             </header>
 
@@ -345,12 +373,16 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Coverage</div>
-                    <div class="stat-value">8+</div>
-                    <div class="stat-note">Core helper functions</div>
+                    <div id="coverageCount" class="stat-value">0</div>
+                    <div class="stat-note">Executed checks</div>
                 </div>
             </section>
 
             <section class="content">
+                <div class="actions">
+                    <button id="runNow" class="run-btn" type="button">Run Real-time Tests</button>
+                    <div id="lastRun" class="run-meta">Last run: not started</div>
+                </div>
                 <div id="summary" class="summary">Running tests...</div>
                 <div class="table-wrap">
                     <table>
@@ -368,10 +400,18 @@
         </section>
     </main>
 
-    <script src="script.js"></script>
+    <script src="js/script.js"></script>
     <script>
         (function () {
             const results = [];
+            const runButton = document.getElementById('runNow');
+            const summaryEl = document.getElementById('summary');
+            const summaryValueEl = document.getElementById('summaryValue');
+            const passedCountEl = document.getElementById('passedCount');
+            const failedCountEl = document.getElementById('failedCount');
+            const coverageCountEl = document.getElementById('coverageCount');
+            const resultsEl = document.getElementById('results');
+            const lastRunEl = document.getElementById('lastRun');
 
             function assert(condition, message) {
                 if (!condition) {
@@ -379,68 +419,106 @@
                 }
             }
 
-            function addResult(name, status, details) {
-                results.push({ name, status, details });
+            function addResult(name, status, details, durationMs) {
+                results.push({ name, status, details, durationMs });
             }
 
-            function runTest(name, fn) {
+            async function runTest(name, fn) {
+                const start = performance.now();
                 try {
-                    fn();
-                    addResult(name, 'PASS', '');
+                    await fn();
+                    addResult(name, 'PASS', '', Math.round(performance.now() - start));
                 } catch (error) {
-                    addResult(name, 'FAIL', error.message);
+                    addResult(name, 'FAIL', error.message, Math.round(performance.now() - start));
                 }
             }
 
-            const originalLocalStorage = {
-                getItem: localStorage.getItem.bind(localStorage),
-                setItem: localStorage.setItem.bind(localStorage),
-                removeItem: localStorage.removeItem.bind(localStorage)
-            };
+            async function expectApiResponse(url, options) {
+                const response = await fetch(url, options || {});
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
 
-            try {
+                try {
+                    await response.json();
+                } catch (error) {
+                    // Response can be empty for some endpoints; no-op.
+                }
+
+                return response;
+            }
+
+            function renderResults() {
+                const passed = results.filter(result => result.status === 'PASS').length;
+                const failed = results.length - passed;
+
+                summaryEl.textContent = `${passed} passed, ${failed} failed`;
+                summaryEl.style.background = failed === 0 ? '#ecfdf5' : '#fef2f2';
+                summaryEl.style.borderColor = failed === 0 ? '#bbf7d0' : '#fecaca';
+                summaryValueEl.textContent = failed === 0 ? 'Healthy' : 'Attention needed';
+                passedCountEl.textContent = String(passed);
+                failedCountEl.textContent = String(failed);
+                coverageCountEl.textContent = String(results.length);
+
+                resultsEl.innerHTML = results.map(result => `
+                    <tr>
+                        <td>${result.name}</td>
+                        <td><span class="badge ${result.status === 'PASS' ? 'pass' : 'fail'}">${result.status}</span></td>
+                        <td>${result.details || '-'} (${result.durationMs}ms)</td>
+                    </tr>
+                `).join('');
+            }
+
+            async function runAllTests() {
+                runButton.disabled = true;
+                runButton.textContent = 'Running...';
+                results.length = 0;
+                summaryEl.textContent = 'Running tests...';
+                summaryEl.style.background = '#eff6ff';
+                summaryEl.style.borderColor = '#bfdbfe';
+
                 localStorage.removeItem('keerthi_local_cart');
 
-                runTest('parseApiList handles plain arrays', () => {
+                await runTest('parseApiList handles plain arrays', async () => {
                     const data = [{ id: 1 }];
                     const result = parseApiList(data);
                     assert(Array.isArray(result), 'Expected an array');
                     assert(result.length === 1, 'Expected one item');
                 });
 
-                runTest('parseApiList handles body string payloads', () => {
+                await runTest('parseApiList handles body string payloads', async () => {
                     const result = parseApiList({ body: JSON.stringify([{ id: 2 }]) });
                     assert(result.length === 1, 'Expected one parsed item');
                     assert(result[0].id === 2, 'Expected parsed item id 2');
                 });
 
-                runTest('parseApiList handles nested items', () => {
+                await runTest('parseApiList handles nested items', async () => {
                     const result = parseApiList({ items: [{ id: 3 }] });
                     assert(result.length === 1, 'Expected one item from items array');
                 });
 
-                runTest('getSafeImageUrl keeps valid http image URLs', () => {
+                await runTest('getSafeImageUrl keeps valid http image URLs', async () => {
                     const url = getSafeImageUrl('https://example.com/image.png');
                     assert(url === 'https://example.com/image.png', 'Expected the original URL');
                 });
 
-                runTest('getSafeImageUrl falls back for invalid URLs', () => {
+                await runTest('getSafeImageUrl falls back for invalid URLs', async () => {
                     const url = getSafeImageUrl('javascript:alert(1)');
                     assert(url === FALLBACK_IMAGE, 'Expected fallback image');
                 });
 
-                runTest('normalizeCartItem accepts different key names', () => {
+                await runTest('normalizeCartItem accepts different key names', async () => {
                     const item = normalizeCartItem({ productId: '42', qty: '3' });
                     assert(item.product_id === '42', 'Expected product_id 42');
                     assert(item.quantity === 3, 'Expected quantity 3');
                 });
 
-                runTest('normalizeCartItem rejects empty input', () => {
+                await runTest('normalizeCartItem rejects empty input', async () => {
                     const item = normalizeCartItem({ quantity: 1 });
                     assert(item === null, 'Expected null for missing id');
                 });
 
-                runTest('addToLocalCart stores and increments items', () => {
+                await runTest('addToLocalCart stores and increments items', async () => {
                     localStorage.removeItem('keerthi_local_cart');
                     addToLocalCart('100');
                     addToLocalCart('100');
@@ -449,13 +527,13 @@
                     assert(cart[0].quantity === 2, 'Expected quantity 2');
                 });
 
-                runTest('getProductCardHtml renders product content', () => {
+                await runTest('getProductCardHtml renders product content', async () => {
                     const html = getProductCardHtml({ product_id: '7', name: 'Lamp', price: 499, image: '' });
                     assert(html.includes('Lamp'), 'Expected product name');
                     assert(html.includes('Add to Cart'), 'Expected add button');
                 });
 
-                runTest('getOrderCardHtml renders order summary', () => {
+                await runTest('getOrderCardHtml renders order summary', async () => {
                     const html = getOrderCardHtml({
                         order_id: 'ORD-1',
                         status: 'PLACED',
@@ -468,31 +546,41 @@
                     assert(html.includes('Chair'), 'Expected order item name');
                 });
 
-                runTest('isOrderApiConfigured returns true for the live API', () => {
+                await runTest('isOrderApiConfigured returns true for the live API', async () => {
                     assert(isOrderApiConfigured() === true, 'Expected order API to be configured');
                 });
-            } finally {
+
+                await runTest('Live Product API responds now', async () => {
+                    await expectApiResponse(PRODUCT);
+                });
+
+                await runTest('Live Cart API responds now', async () => {
+                    await expectApiResponse(CART);
+                });
+
+                await runTest('Live Order API responds now', async () => {
+                    await expectApiResponse(ORDER);
+                });
+
+                await runTest('Live Auth endpoint reachable now', async () => {
+                    const response = await fetch(`${AUTH}/me`, {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+                    if (!(response.ok || response.status === 401 || response.status === 403)) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                });
+
                 localStorage.removeItem('keerthi_local_cart');
-                originalLocalStorage.removeItem('keerthi_local_cart');
+                renderResults();
+                lastRunEl.textContent = `Last run: ${new Date().toLocaleString('en-IN')}`;
+                runButton.disabled = false;
+                runButton.textContent = 'Run Real-time Tests';
             }
 
-            const passed = results.filter(result => result.status === 'PASS').length;
-            const failed = results.length - passed;
-
-            document.getElementById('summary').textContent = `${passed} passed, ${failed} failed`;
-            document.getElementById('summary').style.background = failed === 0 ? '#ecfdf5' : '#fef2f2';
-            document.getElementById('summary').style.borderColor = failed === 0 ? '#bbf7d0' : '#fecaca';
-            document.getElementById('summaryValue').textContent = failed === 0 ? 'Healthy' : 'Attention needed';
-            document.getElementById('passedCount').textContent = String(passed);
-            document.getElementById('failedCount').textContent = String(failed);
-
-            document.getElementById('results').innerHTML = results.map(result => `
-                <tr>
-                    <td>${result.name}</td>
-                    <td><span class="badge ${result.status === 'PASS' ? 'pass' : 'fail'}">${result.status}</span></td>
-                    <td>${result.details || '-'}</td>
-                </tr>
-            `).join('');
+            runButton.addEventListener('click', runAllTests);
+            runAllTests();
         })();
     </script>
 </body>

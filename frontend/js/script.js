@@ -1,6 +1,8 @@
 const PRODUCT = "https://kbmjk6ozhb.execute-api.ap-southeast-1.amazonaws.com/v1/products";
 const CART = "https://kbmjk6ozhb.execute-api.ap-southeast-1.amazonaws.com/v2/cart";
 const ORDER = "https://gf964wvxqb.execute-api.ap-southeast-1.amazonaws.com/orders";
+const AUTH = ORDER.replace(/\/orders$/, "/auth");
+const AUTH_REQUIRED_PAGES = ["index.html", "cart.html", "orders.html"];
 const FALLBACK_IMAGE = "https://via.placeholder.com/300";
 const SECONDARY_FALLBACK_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%23e5e7eb'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%234b5563' font-family='Arial' font-size='18'%3ENo Image%3C/text%3E%3C/svg%3E";
 const LOCAL_CART_KEY = "keerthi_local_cart";
@@ -71,13 +73,50 @@ function getSafeImageUrl(url) {
 function getProductCardHtml(p) {
     const imageUrl = getSafeImageUrl(p.image);
     const safeName = p.name || "Product";
+    const popularity = Number(p._popularity || p.popularity || 0);
+    const popBadge = popularity > 0 ? `<div class="pop-badge">Popular: ${popularity}</div>` : "";
     return `
         <div class="card">
             <img src="${imageUrl}" onerror="if(this.src!=='${FALLBACK_IMAGE}'){this.src='${FALLBACK_IMAGE}';}else{this.onerror=null;this.src='${SECONDARY_FALLBACK_IMAGE}';}" alt="${safeName}">
+            ${popBadge}
             <h3>${safeName}</h3>
             <p>₹ ${p.price}</p>
-            <button onclick="quickAdd('${p.product_id}')">Add to Cart</button>
+            <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
+                <button onclick="quickAdd('${p.product_id}')">Add to Cart</button>
+                <button onclick="deleteProduct('${p.product_id}')" style="background:#ff4d4f;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer;">Delete</button>
+            </div>
         </div>`;
+}
+
+/* DELETE PRODUCT */
+async function deleteProduct(id) {
+    const productId = String(id || "").trim();
+    if (!productId) {
+        alert('Invalid product id');
+        return;
+    }
+
+    if (!confirm('Delete this product? This action cannot be undone.')) return;
+
+    try {
+        const response = await fetch(`${PRODUCT}?product_id=${encodeURIComponent(productId)}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json().catch(() => ({}));
+        console.log('deleteProduct response:', result, 'status:', response.status);
+
+        if (!response.ok || result.error) {
+            alert('Failed to delete product');
+            return;
+        }
+
+        alert('Product deleted');
+        getProducts();
+    } catch (error) {
+        console.log('deleteProduct API error:', error);
+        alert('Failed to delete product');
+    }
 }
 
 function getLocalCart() {
@@ -116,6 +155,77 @@ function normalizeCartItem(item) {
 
 function isOrderApiConfigured() {
     return typeof ORDER === "string" && ORDER.startsWith("http");
+}
+
+function currentPageName() {
+    const path = window.location.pathname || "";
+    const page = path.split("/").pop();
+    return page || "index.html";
+}
+
+function isLoginPage() {
+    return currentPageName() === "login.html";
+}
+
+function isLocalhostRun() {
+    const host = window.location.hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+async function getCurrentUser() {
+    try {
+        const response = await fetch(`${AUTH}/me`, {
+            method: "GET",
+            credentials: "include"
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.error || !result.user) return null;
+        return result.user;
+    } catch (error) {
+        console.log("getCurrentUser error:", error);
+        return null;
+    }
+}
+
+async function logoutUser() {
+    try {
+        await fetch(`${AUTH}/logout`, {
+            method: "POST",
+            credentials: "include"
+        });
+    } catch (error) {
+        console.log("logoutUser error:", error);
+    }
+
+    window.location.href = "login.html";
+}
+
+function enhanceNavForAuthenticatedUser(user) {
+    const navLinks = document.querySelector(".nav-links");
+    if (!navLinks) return;
+
+    const loginLink = navLinks.querySelector(".login-link");
+    if (loginLink) {
+        loginLink.textContent = user?.full_name ? `Hi, ${user.full_name}` : "My Account";
+        loginLink.href = "#";
+        loginLink.onclick = (event) => {
+            event.preventDefault();
+            logoutUser();
+        };
+    }
+}
+
+async function enforceAuthentication() {
+    const page = currentPageName();
+    const user = await getCurrentUser();
+
+    // Authentication is optional in local UI mode; do not force login redirects.
+    if (user) {
+        enhanceNavForAuthenticatedUser(user);
+    }
+
+    return true;
 }
 
 async function fetchNormalizedCartItems() {
@@ -209,6 +319,53 @@ async function getProducts(){
     });
 
     productsEl.innerHTML = html;
+}
+
+/* RECOMMENDATIONS */
+async function getRecommendations(count = 4) {
+    const recEl = document.getElementById("recommendations");
+    if (!recEl) return;
+    try {
+        const res = await fetch(PRODUCT);
+        const data = await res.json().catch(() => ({}));
+        let list = parseApiList(data);
+
+        const cartList = await fetchNormalizedCartItems();
+        const cartIds = new Set(cartList.map(i => String(i.product_id)));
+
+        // Build popularity map from order history
+        const orders = await fetchOrders();
+        const popularityMap = {};
+        orders.forEach(order => {
+            const items = Array.isArray(order.cart_items) ? order.cart_items : [];
+            items.forEach(it => {
+                const pid = String(it.product_id || it.id || it.productId || "").trim();
+                if (!pid) return;
+                popularityMap[pid] = (popularityMap[pid] || 0) + (Number(it.quantity || it.qty || 1) || 1);
+            });
+        });
+
+        // Exclude items already in cart
+        let candidates = list.filter(p => !cartIds.has(String(p.product_id)));
+
+        // Annotate popularity and sort by popularity desc, then price desc as tiebreaker
+        candidates.forEach(p => {
+            p._popularity = popularityMap[String(p.product_id)] || 0;
+        });
+
+        candidates.sort((a, b) => {
+            const pa = Number(a._popularity || 0);
+            const pb = Number(b._popularity || 0);
+            if (pb !== pa) return pb - pa;
+            return Number(b.price || 0) - Number(a.price || 0);
+        });
+
+        const selected = candidates.slice(0, count);
+        recEl.innerHTML = selected.map(getProductCardHtml).join("");
+    } catch (error) {
+        console.log("getRecommendations error:", error);
+        if (recEl) recEl.innerHTML = "";
+    }
 }
 
 /* QUICK ADD */
@@ -489,26 +646,35 @@ async function getOrders() {
 async function searchProduct(){
     const productsEl = document.getElementById("products");
     if (!productsEl) return;
+    const input = document.querySelector('.search');
+    const raw = input ? input.value : '';
+    const keyword = String(raw || '').toLowerCase().trim();
 
-    let keyword = document.querySelector(".search").value.toLowerCase();
+    // If the search box is empty, show full product list
+    if (!keyword) {
+        await getProducts();
+        return;
+    }
 
-    let res = await fetch(PRODUCT);
-    let data = await res.json();
-    console.log("searchProduct response:", data);
+    try {
+        const res = await fetch(PRODUCT);
+        const data = await res.json().catch(() => ({}));
+        console.log("searchProduct response:", data);
 
-    let list = parseApiList(data);
+        const list = parseApiList(data);
 
-    let filtered = list.filter(p =>
-        p.name.toLowerCase().includes(keyword)
-    );
+        const filtered = list.filter(p => {
+            const name = (p && p.name) ? String(p.name).toLowerCase() : '';
+            return name.includes(keyword);
+        });
 
-    let html = "";
-
-    filtered.forEach(p=>{
-        html += getProductCardHtml(p);
-    });
-
-    productsEl.innerHTML = html;
+        const html = filtered.map(p => getProductCardHtml(p)).join('');
+        productsEl.innerHTML = html;
+    } catch (error) {
+        console.log('searchProduct API error:', error);
+        // Fallback: show existing product list
+        await getProducts();
+    }
 }
 
 function handleLogin(event) {
@@ -526,14 +692,39 @@ function handleLogin(event) {
         return false;
     }
 
-    messageEl.textContent = "Login successful. Redirecting to the store...";
-    messageEl.style.display = "block";
-
-    setTimeout(() => {
-        window.location.href = "index.html";
-    }, 700);
+    loginUser(email, password, messageEl);
 
     return false;
+}
+
+async function loginUser(email, password, messageEl) {
+    messageEl.textContent = "Signing in...";
+    messageEl.style.display = "block";
+
+    try {
+        const response = await fetch(`${AUTH}/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ email, password })
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || result.error) {
+            messageEl.textContent = result.error || "Login failed. Check your credentials.";
+            return;
+        }
+
+        messageEl.textContent = `Welcome back, ${result.user?.full_name || email}. Redirecting...`;
+
+        setTimeout(() => {
+            window.location.href = "index.html";
+        }, 800);
+    } catch (error) {
+        console.log("loginUser error:", error);
+        messageEl.textContent = "Unable to reach the auth service right now.";
+    }
 }
 
 function validateLoginCredentials(email, password) {
@@ -551,7 +742,10 @@ function validateLoginCredentials(email, password) {
 }
 
 /* AUTO LOAD */
-window.onload = function() {
+window.onload = async function() {
+    const canContinue = await enforceAuthentication();
+    if (!canContinue) return;
+
     if (document.getElementById("products")) {
         getProducts();
     }
@@ -560,5 +754,8 @@ window.onload = function() {
     }
     if (document.getElementById("orders")) {
         getOrders();
+    }
+    if (document.getElementById("recommendations")) {
+        getRecommendations();
     }
 };

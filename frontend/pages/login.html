@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keerthi Store - Login</title>
+
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+
+<body class="auth-page">
+
+<header class="navbar">
+    <div class="logo">🛒 Keerthi Store</div>
+
+    <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="orders.html">Orders</a>
+        <a href="cart.html">Cart</a>
+        <a href="../website.test.html">Tests</a>
+    </div>
+</header>
+
+<main class="auth-wrap">
+    <section class="auth-card">
+        <div class="auth-badge">Secure Sign In</div>
+        <h1>Welcome back</h1>
+        <p>Sign in or create an account. Credentials are validated by Lambda and stored in DynamoDB.</p>
+
+        <div id="loginMessage" class="auth-message"></div>
+        <div id="registerMessage" class="auth-message auth-message-alt"></div>
+
+        <div class="auth-grid">
+            <section class="auth-panel">
+                <h2>Sign in</h2>
+                <p>Use your Keerthi account to continue to the store.</p>
+
+                <form class="auth-form" onsubmit="return handleLogin(event)">
+                    <label>
+                        Email Address
+                        <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email" required>
+                    </label>
+
+                    <label>
+                        Password
+                        <input id="loginPassword" type="password" placeholder="Enter your password" autocomplete="current-password" required>
+                    </label>
+
+                    <button type="submit">Login</button>
+                </form>
+            </section>
+
+            <section class="auth-panel auth-panel-soft">
+                <h2>Create account</h2>
+                <p>Register once and keep your user record in DynamoDB.</p>
+
+                <form class="auth-form" onsubmit="return handleRegister(event)">
+                    <label>
+                        Full Name
+                        <input id="registerName" type="text" placeholder="Keerthi" autocomplete="name" required>
+                    </label>
+
+                    <label>
+                        Email Address
+                        <input id="registerEmail" type="email" placeholder="you@example.com" autocomplete="email" required>
+                    </label>
+
+                    <label>
+                        Password
+                        <input id="registerPassword" type="password" placeholder="Create a strong password" autocomplete="new-password" minlength="8" required>
+                    </label>
+
+                    <label>
+                        Confirm Password
+                        <input id="registerConfirmPassword" type="password" placeholder="Repeat your password" autocomplete="new-password" minlength="8" required>
+                    </label>
+
+                    <button type="submit">Create account</button>
+                </form>
+            </section>
+        </div>
+
+        <div class="auth-hint">
+            Browser storage is not used. Account data lives in DynamoDB under KEERTHI_TABLE.
+        </div>
+    </section>
+</main>
+
+<script src="../js/script.js"></script>
+
+</body>
+</html>

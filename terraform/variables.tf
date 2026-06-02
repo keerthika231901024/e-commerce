@@ -25,3 +25,12 @@ variable "monitoring_email" {
 variable "enable_monitoring" {
   default = false
 }
+
+variable "auth_allowed_origins" {
+  type = list(string)
+  default = [
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "https://dgebflsa5lqkq.cloudfront.net"
+  ]
+}

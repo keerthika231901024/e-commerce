@@ -5,8 +5,14 @@ provider "aws" {
 
 data "archive_file" "order_lambda_zip" {
   type        = "zip"
-  source_file = "${path.module}/order_lambda.py"
+  source_file = "${path.module}/../backend/order/lambda_function.py"
   output_path = "${path.module}/order_lambda.zip"
+}
+
+data "archive_file" "auth_lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/../backend/auth/lambda_function.py"
+  output_path = "${path.module}/auth_lambda.zip"
 }
 
 # =========================
@@ -74,63 +80,63 @@ resource "aws_s3_bucket_policy" "policy" {
 resource "aws_s3_object" "index" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "index.html"
-  source       = "index.html"
+  source       = "${path.module}/../frontend/pages/index.html"
   content_type = "text/html"
-  etag         = filemd5("index.html")
+  etag         = filemd5("${path.module}/../frontend/pages/index.html")
 }
 
 # CART HTML
 resource "aws_s3_object" "cart" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "cart.html"
-  source       = "cart.html"
+  source       = "${path.module}/../frontend/pages/cart.html"
   content_type = "text/html"
-  etag         = filemd5("cart.html")
+  etag         = filemd5("${path.module}/../frontend/pages/cart.html")
 }
 
 # ORDERS HTML
 resource "aws_s3_object" "orders" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "orders.html"
-  source       = "orders.html"
+  source       = "${path.module}/../frontend/pages/orders.html"
   content_type = "text/html"
-  etag         = filemd5("orders.html")
+  etag         = filemd5("${path.module}/../frontend/pages/orders.html")
 }
 
 # LOGIN HTML
 resource "aws_s3_object" "login" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "login.html"
-  source       = "login.html"
+  source       = "${path.module}/../frontend/pages/login.html"
   content_type = "text/html"
-  etag         = filemd5("login.html")
+  etag         = filemd5("${path.module}/../frontend/pages/login.html")
 }
 
 # WEBSITE TEST HTML
 resource "aws_s3_object" "website_test" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "website.test.html"
-  source       = "website.test.html"
+  source       = "${path.module}/../frontend/website.test.html"
   content_type = "text/html"
-  etag         = filemd5("website.test.html")
+  etag         = filemd5("${path.module}/../frontend/website.test.html")
 }
 
 # CSS
 resource "aws_s3_object" "css" {
   bucket       = aws_s3_bucket.frontend.id
-  key          = "style.css"
-  source       = "style.css"
+  key          = "css/style.css"
+  source       = "${path.module}/../frontend/css/style.css"
   content_type = "text/css"
-  etag         = filemd5("style.css")
+  etag         = filemd5("${path.module}/../frontend/css/style.css")
 }
 
 # JS
 resource "aws_s3_object" "js" {
   bucket       = aws_s3_bucket.frontend.id
-  key          = "script.js"
-  source       = "script.js"
+  key          = "js/script.js"
+  source       = "${path.module}/../frontend/js/script.js"
   content_type = "application/javascript"
-  etag         = filemd5("script.js")
+  etag         = filemd5("${path.module}/../frontend/js/script.js")
 }
 
 # =========================
@@ -208,7 +214,7 @@ resource "aws_iam_role_policy" "order_lambda_policy" {
 resource "aws_lambda_function" "order" {
   function_name    = "keerthi_order"
   role             = aws_iam_role.order_lambda_role.arn
-  handler          = "order_lambda.lambda_handler"
+  handler          = "lambda_function.lambda_handler"
   runtime          = "python3.12"
   filename         = data.archive_file.order_lambda_zip.output_path
   source_code_hash = data.archive_file.order_lambda_zip.output_base64sha256
@@ -223,6 +229,130 @@ resource "aws_lambda_function" "order" {
   tracing_config {
     mode = "Active"
   }
+}
+
+resource "aws_dynamodb_table" "keerthi_table" {
+  name         = "KEERTHI_TABLE"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "email"
+
+  attribute {
+    name = "email"
+    type = "S"
+  }
+
+  tags = {
+    Name  = "keerthi-auth-users"
+    Owner = "keerthi"
+  }
+}
+
+resource "aws_dynamodb_table" "keerthi_session_table" {
+  name         = "KEERTHI_SESSION_TABLE"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "session_id"
+
+  attribute {
+    name = "session_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
+  tags = {
+    Name  = "keerthi-auth-sessions"
+    Owner = "keerthi"
+  }
+}
+
+resource "aws_iam_role" "auth_lambda_role" {
+  name = "${var.project_name}-auth-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        },
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "auth_lambda_policy" {
+  name = "${var.project_name}-auth-lambda-policy"
+  role = aws_iam_role.auth_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow",
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
+        ],
+        Resource = [
+          aws_dynamodb_table.keerthi_table.arn,
+          aws_dynamodb_table.keerthi_session_table.arn,
+        ]
+      },
+      {
+        Effect = "Allow",
+        Action = [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "auth" {
+  function_name    = "KEERTHI_AUTH_SERVICE"
+  role             = aws_iam_role.auth_lambda_role.arn
+  handler          = "lambda_function.lambda_handler"
+  runtime          = "python3.12"
+  filename         = data.archive_file.auth_lambda_zip.output_path
+  source_code_hash = data.archive_file.auth_lambda_zip.output_base64sha256
+  timeout          = 10
+
+  environment {
+    variables = {
+      KEERTHI_TABLE               = aws_dynamodb_table.keerthi_table.name
+      KEERTHI_SESSION_TABLE       = aws_dynamodb_table.keerthi_session_table.name
+      KEERTHI_SESSION_TTL_SECONDS = "86400"
+      KEERTHI_COOKIE_SECURE       = "true"
+    }
+  }
+
+  tracing_config {
+    mode = "Active"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "auth_lambda_logs" {
+  count             = var.enable_monitoring ? 1 : 0
+  name              = "/aws/lambda/${aws_lambda_function.auth.function_name}"
+  retention_in_days = 14
 }
 
 resource "aws_cloudwatch_log_group" "order_lambda_logs" {
@@ -391,9 +521,10 @@ resource "aws_apigatewayv2_api" "orders" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = ["*"]
-    allow_methods = ["GET", "POST", "OPTIONS"]
-    allow_headers = ["*"]
+    allow_origins     = var.auth_allowed_origins
+    allow_methods     = ["GET", "POST", "OPTIONS"]
+    allow_headers     = ["*"]
+    allow_credentials = true
   }
 }
 
@@ -423,9 +554,48 @@ resource "aws_apigatewayv2_stage" "orders_default" {
 }
 
 resource "aws_lambda_permission" "orders_api_invoke" {
-  statement_id  = "AllowExecutionFromAPIGatewayOrders"
+  statement_id  = "AllowExecutionFromAPIGatewayOrdersV2"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.order.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.orders.execution_arn}/*/*"
+}
+
+resource "aws_apigatewayv2_integration" "auth_lambda" {
+  api_id                 = aws_apigatewayv2_api.orders.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.auth.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "auth_login" {
+  api_id    = aws_apigatewayv2_api.orders.id
+  route_key = "POST /auth/login"
+  target    = "integrations/${aws_apigatewayv2_integration.auth_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "auth_register" {
+  api_id    = aws_apigatewayv2_api.orders.id
+  route_key = "POST /auth/register"
+  target    = "integrations/${aws_apigatewayv2_integration.auth_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "auth_me" {
+  api_id    = aws_apigatewayv2_api.orders.id
+  route_key = "GET /auth/me"
+  target    = "integrations/${aws_apigatewayv2_integration.auth_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "auth_logout" {
+  api_id    = aws_apigatewayv2_api.orders.id
+  route_key = "POST /auth/logout"
+  target    = "integrations/${aws_apigatewayv2_integration.auth_lambda.id}"
+}
+
+resource "aws_lambda_permission" "auth_api_invoke" {
+  statement_id  = "AllowExecutionFromAPIGatewayAuth"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.auth.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.orders.execution_arn}/*/*"
 }
@@ -489,7 +659,7 @@ output "frontend_url" {
 }
 
 output "orders_api_url" {
-  value = "${format("%sorders", aws_apigatewayv2_stage.orders_default.invoke_url)}"
+  value = format("%sorders", aws_apigatewayv2_stage.orders_default.invoke_url)
 }
 
 output "monitoring_dashboard_name" {
