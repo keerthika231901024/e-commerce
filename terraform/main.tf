@@ -3,6 +3,9 @@ provider "aws" {
   profile = var.profile
 }
 
+# Get current AWS account ID for CloudFront distribution ARN
+data "aws_caller_identity" "current" {}
+
 data "archive_file" "order_lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/../backend/order/lambda_function.py"
@@ -29,18 +32,6 @@ resource "aws_s3_bucket" "frontend" {
 }
 
 # =========================
-# PUBLIC ACCESS SETTINGS
-# =========================
-resource "aws_s3_bucket_public_access_block" "public" {
-  bucket = aws_s3_bucket.frontend.id
-
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
-}
-
-# =========================
 # WEBSITE HOSTING
 # =========================
 resource "aws_s3_bucket_website_configuration" "site" {
@@ -52,23 +43,29 @@ resource "aws_s3_bucket_website_configuration" "site" {
 }
 
 # =========================
-# BUCKET POLICY (PUBLIC READ)
+# BUCKET POLICY (CLOUDFRONT OAC ONLY)
 # =========================
 resource "aws_s3_bucket_policy" "policy" {
   bucket = aws_s3_bucket.frontend.id
 
-  depends_on = [
-    aws_s3_bucket_public_access_block.public
-  ]
-
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [{
-      Effect    = "Allow",
-      Principal = "*",
-      Action    = ["s3:GetObject"],
-      Resource  = "${aws_s3_bucket.frontend.arn}/*"
-    }]
+    Statement = [
+      {
+        Sid    = "AllowCloudFrontOAC",
+        Effect = "Allow",
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        },
+        Action   = "s3:GetObject",
+        Resource = "${aws_s3_bucket.frontend.arn}/*",
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${aws_cloudfront_distribution.cdn.id}"
+          }
+        }
+      }
+    ]
   })
 }
 
@@ -103,15 +100,6 @@ resource "aws_s3_object" "orders" {
   etag         = filemd5("${path.module}/../frontend/pages/orders.html")
 }
 
-# LOGIN HTML
-resource "aws_s3_object" "login" {
-  bucket       = aws_s3_bucket.frontend.id
-  key          = "login.html"
-  source       = "${path.module}/../frontend/pages/login.html"
-  content_type = "text/html"
-  etag         = filemd5("${path.module}/../frontend/pages/login.html")
-}
-
 # WEBSITE TEST HTML
 resource "aws_s3_object" "website_test" {
   bucket       = aws_s3_bucket.frontend.id
@@ -119,6 +107,60 @@ resource "aws_s3_object" "website_test" {
   source       = "${path.module}/../frontend/website.test.html"
   content_type = "text/html"
   etag         = filemd5("${path.module}/../frontend/website.test.html")
+}
+
+# PORTAL HTML (landing page)
+resource "aws_s3_object" "portal" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "portal.html"
+  source       = "${path.module}/../frontend/portal.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../frontend/portal.html")
+}
+
+# LEGACY LOGIN REDIRECT
+resource "aws_s3_object" "legacy_login_redirect" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "login.html"
+  source       = "${path.module}/../frontend/login.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../frontend/login.html")
+}
+
+# ADMIN LOGIN HTML
+resource "aws_s3_object" "admin_login" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "admin-login.html"
+  source       = "${path.module}/../frontend/admin-login.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../frontend/admin-login.html")
+}
+
+# ADMIN DASHBOARD HTML
+resource "aws_s3_object" "admin_dashboard" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "admin-dashboard.html"
+  source       = "${path.module}/../frontend/admin-dashboard.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../frontend/admin-dashboard.html")
+}
+
+# USER LOGIN HTML
+resource "aws_s3_object" "user_login" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "user-login.html"
+  source       = "${path.module}/../frontend/user-login.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../frontend/user-login.html")
+}
+
+# USER REGISTER HTML
+resource "aws_s3_object" "user_register" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "user-register.html"
+  source       = "${path.module}/../frontend/user-register.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../frontend/user-register.html")
 }
 
 # CSS
@@ -307,7 +349,8 @@ resource "aws_iam_role_policy" "auth_lambda_policy" {
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem"
+          "dynamodb:DeleteItem",
+          "dynamodb:Scan"
         ],
         Resource = [
           aws_dynamodb_table.keerthi_table.arn,
@@ -592,6 +635,12 @@ resource "aws_apigatewayv2_route" "auth_logout" {
   target    = "integrations/${aws_apigatewayv2_integration.auth_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "admin_users" {
+  api_id    = aws_apigatewayv2_api.orders.id
+  route_key = "GET /admin/users"
+  target    = "integrations/${aws_apigatewayv2_integration.auth_lambda.id}"
+}
+
 resource "aws_lambda_permission" "auth_api_invoke" {
   statement_id  = "AllowExecutionFromAPIGatewayAuth"
   action        = "lambda:InvokeFunction"
@@ -603,18 +652,20 @@ resource "aws_lambda_permission" "auth_api_invoke" {
 # =========================
 # CLOUDFRONT
 # =========================
+resource "aws_cloudfront_origin_access_control" "oac" {
+  name                              = "${var.project_name}-frontend-oac"
+  description                       = "CloudFront OAC for private access to the frontend S3 bucket"
+  origin_access_control_origin_type = "s3"
+  signing_protocol                  = "sigv4"
+  signing_behavior                  = "always"
+}
+
 resource "aws_cloudfront_distribution" "cdn" {
 
   origin {
-    domain_name = aws_s3_bucket.frontend.website_endpoint
-    origin_id   = "keerthi-origin"
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                = "keerthi-origin"
+    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
   enabled             = true

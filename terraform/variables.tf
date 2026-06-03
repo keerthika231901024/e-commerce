@@ -31,6 +31,6 @@ variable "auth_allowed_origins" {
   default = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
-    "https://dgebflsa5lqkq.cloudfront.net"
+    "https://d3dk5w3d54g0i1.cloudfront.net"
   ]
 }
